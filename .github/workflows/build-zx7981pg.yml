@@ -1,0 +1,62 @@
+name: Build ZX7981PG Firmware
+
+on:
+  workflow_dispatch:
+
+jobs:
+  build:
+    runs-on: ubuntu-22.04
+
+    steps:
+      - name: Free disk space
+        run: |
+          sudo rm -rf /usr/share/dotnet /usr/local/lib/android /opt/ghc /opt/hostedtoolcache/CodeQL
+          sudo docker image prune --all --force 2>/dev/null || true
+          df -h
+
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Install dependencies
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y \
+            subversion build-essential libncurses5-dev zlib1g-dev gawk \
+            git ccache gettext libssl-dev xsltproc libxml-parser-perl \
+            gengetopt rsync unzip python3 python3-distutils \
+            flex bison libelf-dev device-tree-compiler
+
+      - name: Set up feeds
+        working-directory: openwrt
+        run: |
+          cp autobuild/feeds.conf.default-21.02 feeds.conf.default
+          ./scripts/feeds update -a
+          ./scripts/feeds install -a
+
+      - name: Configure for ZX7981PG
+        working-directory: openwrt
+        run: make ZX7981PG_zx
+
+      - name: Download packages
+        working-directory: openwrt
+        run: |
+          make download -j8
+          find dl -size -1024c -exec rm -f {} \;
+
+      - name: Build firmware
+        working-directory: openwrt
+        run: make -j$(nproc) || make -j1 V=s
+
+      - name: Upload sysupgrade firmware
+        uses: actions/upload-artifact@v4
+        with:
+          name: ZX7981PG-sysupgrade
+          path: openwrt/bin/targets/mediatek/mt7981/**/*sysupgrade*.bin
+          if-no-files-found: warn
+
+      - name: Upload all firmware files
+        uses: actions/upload-artifact@v4
+        with:
+          name: ZX7981PG-all-firmware
+          path: openwrt/bin/targets/mediatek/mt7981/
+          if-no-files-found: warn
